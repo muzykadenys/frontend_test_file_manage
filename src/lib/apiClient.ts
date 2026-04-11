@@ -1,7 +1,10 @@
 import axios from "axios";
 
+/** Same-origin prefix; Next.js proxies to Nest (`BACKEND_URL` in `.env.local`, see `next.config.mjs`). */
+const API_PROXY_BASE = "/backend-api";
+
 export function getApiBaseUrl() {
-  return process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+  return API_PROXY_BASE;
 }
 
 /** Shared client — 401 handling is registered in `src/store/index.ts` (calls `appStore.logout()`). */
