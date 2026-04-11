@@ -1,0 +1,25 @@
+export const AUTH_LOGIN_REQUEST = 'AUTH_LOGIN_REQUEST' as const;
+export const AUTH_LOGIN_SUCCESS = 'AUTH_LOGIN_SUCCESS' as const;
+export const AUTH_LOGIN_FAILURE = 'AUTH_LOGIN_FAILURE' as const;
+export const AUTH_REGISTER_REQUEST = 'AUTH_REGISTER_REQUEST' as const;
+export const AUTH_REGISTER_DONE = 'AUTH_REGISTER_DONE' as const;
+export const AUTH_LOGOUT = 'AUTH_LOGOUT' as const;
+export const AUTH_RESTORE = 'AUTH_RESTORE' as const;
+
+export const FILES_LOAD_REQUEST = 'FILES_LOAD_REQUEST' as const;
+export const FILES_LOAD_SUCCESS = 'FILES_LOAD_SUCCESS' as const;
+export const FILES_LOAD_FAILURE = 'FILES_LOAD_FAILURE' as const;
+export const FILES_PARENT_SET_SYNC = 'FILES_PARENT_SET_SYNC' as const;
+export const FILES_SEARCH = 'FILES_SEARCH' as const;
+export const FILES_SEARCH_SUCCESS = 'FILES_SEARCH_SUCCESS' as const;
+export const FILES_SEARCH_RESET = 'FILES_SEARCH_RESET' as const;
+export const FILES_DELETE_REQUEST = 'FILES_DELETE_REQUEST' as const;
+export const FILES_CREATE_FOLDER_REQUEST = 'FILES_CREATE_FOLDER_REQUEST' as const;
+export const FILES_UPLOAD_REQUEST = 'FILES_UPLOAD_REQUEST' as const;
+export const FILES_UPLOAD_PENDING_ADD = 'FILES_UPLOAD_PENDING_ADD' as const;
+export const FILES_UPLOAD_PENDING_REMOVE = 'FILES_UPLOAD_PENDING_REMOVE' as const;
+export const FILES_RENAME_REQUEST = 'FILES_RENAME_REQUEST' as const;
+export const FILES_TOGGLE_PUBLIC_REQUEST = 'FILES_TOGGLE_PUBLIC_REQUEST' as const;
+export const FILES_CLONE_REQUEST = 'FILES_CLONE_REQUEST' as const;
+export const FILES_REORDER_REQUEST = 'FILES_REORDER_REQUEST' as const;
+export const FILES_VIEW_MODE_SET = 'FILES_VIEW_MODE_SET' as const;
