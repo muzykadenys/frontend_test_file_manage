@@ -77,8 +77,10 @@ export function ShareDialog({
           <DialogDescription>
             See who has access, remove people, or invite someone new by email. Use “Copy link to item” to copy a
             dashboard URL to this file or folder.{" "}
-            <strong>Public</strong> visibility: anyone can open the link — including without an account (read-only table
-            and preview). <strong>Private</strong> items: only you and invited emails who are signed in.
+            <strong>Public</strong> files or empty folders: anyone can open them without an account (read-only table and
+            preview). <strong>Public folder:</strong> this folder and everything nested inside becomes public at all
+            levels; making it private does the reverse for the whole tree. <strong>Private</strong> items: only you and
+            invited emails who are signed in.
           </DialogDescription>
           {item?.item_type === "folder" ? (
             <p className="rounded-md border border-dashed bg-muted/50 px-3 py-2 text-sm text-foreground/90">

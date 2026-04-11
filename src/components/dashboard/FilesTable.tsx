@@ -3,7 +3,6 @@ import {
   Copy,
   Download,
   Eye,
-  Image as ImageIcon,
   LayoutGrid,
   Link2,
   Loader2,
@@ -23,6 +22,11 @@ import { ItemTypeIcon } from "./ItemTypeIcon";
 
 const actionBtn =
   "cursor-pointer shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring";
+
+/** Rows use `draggable` for reorder; without this, the browser can swallow clicks on nested controls. */
+function stopRowDragMouseDown(e: React.MouseEvent) {
+  e.stopPropagation();
+}
 
 function ownerLabel(item: Item, currentUserId: string | null): string {
   if (currentUserId && item.owner_id === currentUserId) return "You";
@@ -45,6 +49,31 @@ function canRename(item: Item): boolean {
 
 function isOwner(item: Item): boolean {
   return itemRole(item) === "owner";
+}
+
+const IMAGE_EXT = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".bmp", ".ico", ".heic", ".avif"]);
+const VIDEO_EXT = new Set([".mp4", ".webm", ".mov", ".avi", ".mkv", ".m4v", ".ogv"]);
+
+function extensionFromFileName(name: string): string {
+  const i = name.lastIndexOf(".");
+  if (i <= 0) return "";
+  return name.slice(i).toLowerCase();
+}
+
+/** Column "Type": folder, image, video, or other files (by mime when known). */
+function itemTypeColumnLabel(item: Item): string {
+  if (item.item_type === "folder") return "Folder";
+  const mime = (item.mime_type || "").toLowerCase().trim();
+  if (mime.startsWith("image/")) return "Image";
+  if (mime.startsWith("video/")) return "Video";
+  return "Other file";
+}
+
+function pendingUploadTypeLabel(fileName: string): string {
+  const ext = extensionFromFileName(fileName);
+  if (IMAGE_EXT.has(ext)) return "Image";
+  if (VIDEO_EXT.has(ext)) return "Video";
+  return "Other file";
 }
 
 type Props = {
@@ -101,12 +130,7 @@ export function FilesTable({
               Name
             </span>
           </TableHead>
-          <TableHead>
-            <span className="inline-flex items-center gap-2">
-              <ImageIcon className="h-4 w-4 text-muted-foreground" aria-hidden />
-              Type
-            </span>
-          </TableHead>
+          <TableHead>Type</TableHead>
           <TableHead title="Public: anyone with the link can open (no account needed). Private: only you and invited people.">
             <span className="inline-flex items-center gap-2">
               <Eye className="h-4 w-4 text-muted-foreground" aria-hidden />
@@ -140,12 +164,7 @@ export function FilesTable({
                 <span className="shrink-0 text-xs text-muted-foreground">Uploading…</span>
               </span>
             </TableCell>
-            <TableCell>
-              <span className="inline-flex items-center gap-2 text-muted-foreground">
-                <ItemTypeIcon type="file" />
-                file
-              </span>
-            </TableCell>
+            <TableCell className="text-muted-foreground">{pendingUploadTypeLabel(p.name)}</TableCell>
             <TableCell>
               <span className="text-sm text-muted-foreground">—</span>
             </TableCell>
@@ -175,18 +194,14 @@ export function FilesTable({
                   type="button"
                   variant="link"
                   className="h-auto max-w-full cursor-pointer justify-start gap-2 p-0 font-normal hover:no-underline"
+                  onMouseDown={reorder ? stopRowDragMouseDown : undefined}
                   onClick={() => (it.item_type === "folder" ? onNavigateFolder(it) : onOpenPreview(it))}
                 >
                   <ItemTypeIcon type={it.item_type} />
                   <span className="truncate">{it.name}</span>
                 </Button>
               </TableCell>
-              <TableCell>
-                <span className="inline-flex items-center gap-2 capitalize text-muted-foreground">
-                  <ItemTypeIcon type={it.item_type} />
-                  {it.item_type}
-                </span>
-              </TableCell>
+              <TableCell className="text-muted-foreground">{itemTypeColumnLabel(it)}</TableCell>
               <TableCell>
                 <Badge
                   variant={it.is_public ? "secondary" : "outline"}
@@ -222,6 +237,7 @@ export function FilesTable({
                       size="icon"
                       variant="secondary"
                       className={cn(actionBtn, "h-8 w-8 shrink-0")}
+                      onMouseDown={stopRowDragMouseDown}
                       onClick={() => onDownload(it)}
                       title="Download file"
                       aria-label="Download file"
@@ -238,6 +254,7 @@ export function FilesTable({
                       "h-8 w-8 shrink-0",
                       copiedItemId === it.id && "border-green-600/50 bg-green-600/10 text-green-700 dark:text-green-400",
                     )}
+                    onMouseDown={stopRowDragMouseDown}
                     onClick={() => onCopyUrl(it)}
                     title={
                       copiedItemId === it.id
@@ -260,6 +277,7 @@ export function FilesTable({
                       size="sm"
                       variant="secondary"
                       className={actionBtn}
+                      onMouseDown={stopRowDragMouseDown}
                       onClick={() => onShare(it)}
                     >
                       <Share2 className="h-3.5 w-3.5" />
@@ -273,11 +291,16 @@ export function FilesTable({
                       variant="secondary"
                       className={cn(actionBtn, "h-8 w-8 shrink-0")}
                       disabled={togglingPublicId === it.id}
+                      onMouseDown={stopRowDragMouseDown}
                       onClick={() => onTogglePublic(it.id, it.is_public)}
                       title={
                         it.is_public
-                          ? "Make private — only you and invited people"
-                          : "Make public — anyone with the link can open (no account required)"
+                          ? it.item_type === "folder"
+                            ? "Make private — only you and invited people; all nested items become private at every level"
+                            : "Make private — only you and invited people"
+                          : it.item_type === "folder"
+                            ? "Make public — anyone with the link can open; all nested files and folders become public at every level"
+                            : "Make public — anyone with the link can open (no account required)"
                       }
                       aria-label={it.is_public ? "Make private" : "Make public"}
                     >
@@ -296,6 +319,7 @@ export function FilesTable({
                           size="sm"
                           variant="secondary"
                           className={actionBtn}
+                          onMouseDown={stopRowDragMouseDown}
                           onClick={() => onRenameClick(it)}
                         >
                           <Pencil className="h-3.5 w-3.5" />
@@ -310,6 +334,7 @@ export function FilesTable({
                             variant="secondary"
                             className={cn(actionBtn, "min-w-[4.5rem]")}
                             disabled={cloningId === it.id}
+                            onMouseDown={stopRowDragMouseDown}
                             onClick={() => onClone(it.id)}
                           >
                             {cloningId === it.id ? (
@@ -324,6 +349,7 @@ export function FilesTable({
                             size="icon"
                             variant="destructive"
                             className={cn(actionBtn, "h-8 w-8 shrink-0 hover:bg-destructive/90")}
+                            onMouseDown={stopRowDragMouseDown}
                             onClick={() => onDeleteClick(it)}
                             title="Delete"
                             aria-label="Delete"
