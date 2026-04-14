@@ -81,6 +81,8 @@ type Props = {
   /** Rows shown while upload is in progress (optimistic). */
   pendingUploads: { clientId: string; name: string }[];
   currentUserId: string | null;
+  /** Block opening folders while list is loading (avoids duplicate crumbs / races). */
+  navigationLocked?: boolean;
   allowReorder: boolean;
   togglingPublicId: string | null;
   cloningId: string | null;
@@ -103,6 +105,7 @@ export function FilesTable({
   list,
   pendingUploads,
   currentUserId,
+  navigationLocked = false,
   allowReorder,
   togglingPublicId,
   cloningId,
@@ -194,6 +197,7 @@ export function FilesTable({
                   type="button"
                   variant="link"
                   className="h-auto max-w-full cursor-pointer justify-start gap-2 p-0 font-normal hover:no-underline"
+                  disabled={it.item_type === "folder" && navigationLocked}
                   onMouseDown={reorder ? stopRowDragMouseDown : undefined}
                   onClick={() => (it.item_type === "folder" ? onNavigateFolder(it) : onOpenPreview(it))}
                 >
@@ -229,8 +233,8 @@ export function FilesTable({
               >
                 {ownerLabel(it, currentUserId)}
               </TableCell>
-              <TableCell className="text-right">
-                <div className="flex flex-wrap justify-end gap-1">
+              <TableCell className="text-right whitespace-nowrap">
+                <div className="flex flex-nowrap justify-end gap-1">
                   {it.item_type === "file" ? (
                     <Button
                       type="button"
@@ -307,9 +311,9 @@ export function FilesTable({
                       {togglingPublicId === it.id ? (
                         <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
                       ) : it.is_public ? (
-                        <Lock className="h-3.5 w-3.5 text-muted-foreground" />
-                      ) : (
                         <Unlock className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
+                      ) : (
+                        <Lock className="h-3.5 w-3.5 text-muted-foreground" />
                       )}
                     </Button>
                   ) : null}

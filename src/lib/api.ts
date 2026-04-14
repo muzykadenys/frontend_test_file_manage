@@ -1,4 +1,4 @@
-import { apiClient } from './apiClient';
+import { apiClient, getBlobFetchBaseUrl } from './apiClient';
 
 export type AuthHeaderOpts = { userId?: string; userEmail?: string };
 
@@ -12,6 +12,52 @@ export function authHeaders(token: string, userIdOrOpts?: string | AuthHeaderOpt
     if (userIdOrOpts.userEmail) h['X-User-Email'] = userIdOrOpts.userEmail;
   }
   return h;
+}
+
+/**
+ * Binary file streams must use the Fetch API — axios `responseType: 'blob'` is unreliable in the browser
+ * with some proxies/transports and can yield empty or unusable blobs.
+ */
+async function fetchBlob(path: string, init?: RequestInit): Promise<Blob> {
+  const url = `${getBlobFetchBaseUrl()}${path.startsWith('/') ? path : `/${path}`}`;
+  const headers = init?.headers as Record<string, string> | Headers | undefined;
+  const hadBearer =
+    headers &&
+    (headers instanceof Headers
+      ? headers.get('Authorization')?.startsWith('Bearer ')
+      : typeof (headers as Record<string, string>).Authorization === 'string' &&
+        (headers as Record<string, string>).Authorization.startsWith('Bearer '));
+
+  const res = await fetch(url, { ...init, mode: 'cors', credentials: 'omit' });
+
+  if (res.status === 401 && hadBearer && typeof window !== 'undefined') {
+    const { appStore } = await import('@/store/appStore');
+    appStore.logout();
+  }
+
+  if (!res.ok) {
+    const ct = res.headers.get('content-type') || '';
+    let message = res.statusText || `HTTP ${res.status}`;
+    if (ct.includes('application/json')) {
+      try {
+        const j = (await res.json()) as { message?: string | string[] };
+        const m = j.message;
+        message = Array.isArray(m) ? m.join(', ') : (m ?? message);
+      } catch {
+        /* ignore */
+      }
+    } else {
+      try {
+        const t = await res.text();
+        if (t && t.length < 500) message = t.slice(0, 240);
+      } catch {
+        /* ignore */
+      }
+    }
+    throw new Error(message);
+  }
+
+  return res.blob();
 }
 
 export async function loginRequest(email: string, password: string) {
@@ -61,6 +107,10 @@ export async function createFolder(token: string, body: { name: string; parentId
   return data;
 }
 
+/**
+ * Multipart upload must hit the API origin when `NEXT_PUBLIC_BACKEND_URL` is set — same as `fetchBlob`.
+ * Next.js rewrites to the Nest app can break multipart bodies in dev, yielding an empty file and 400.
+ */
 export async function uploadFile(
   token: string,
   file: File,
@@ -71,7 +121,9 @@ export async function uploadFile(
   if (opts.parentId) fd.append('parentId', opts.parentId);
   if (opts.name) fd.append('name', opts.name);
   fd.append('isPublic', opts.isPublic ? 'true' : 'false');
-  const { data } = await apiClient.post('/items/upload', fd, {
+  const base = getBlobFetchBaseUrl().replace(/\/$/, '');
+  const uploadUrl = `${base}/items/upload`;
+  const { data } = await apiClient.post(uploadUrl, fd, {
     headers: authHeaders(token, { userId: opts.userId ?? undefined }),
   });
   return data;
@@ -83,7 +135,7 @@ export async function renameItem(token: string, id: string, name: string) {
 }
 
 export async function togglePublic(token: string, id: string, isPublic: boolean) {
-  const { data } = await apiClient.patch(`/items/${id}`, { isPublic }, { headers: authHeaders(token) });
+  const { data } = await apiClient.patch(`/items/${id}`, { isPublic: Boolean(isPublic) }, { headers: authHeaders(token) });
   return data;
 }
 
@@ -116,14 +168,12 @@ export async function fetchItemFileBlob(
   id: string,
   opts?: { userId?: string; userEmail?: string | null },
 ) {
-  const { data } = await apiClient.get(`/items/${id}/file`, {
-    responseType: 'blob',
+  return fetchBlob(`/items/${encodeURIComponent(id)}/file`, {
     headers: authHeaders(token, {
       userId: opts?.userId,
       userEmail: opts?.userEmail ?? undefined,
     }),
   });
-  return data as Blob;
 }
 
 export async function getItemContext(
@@ -192,10 +242,7 @@ export async function getPublicShare(token: string) {
 
 /** Public share token — stream file bytes (no Supabase signed URL). */
 export async function fetchPublicShareFileBlob(shareToken: string) {
-  const { data } = await apiClient.get(`/public/share/${encodeURIComponent(shareToken)}/file`, {
-    responseType: 'blob',
-  });
-  return data as Blob;
+  return fetchBlob(`/public/share/${encodeURIComponent(shareToken)}/file`);
 }
 
 /** Anonymous browse: public item metadata + path (same shape as getItemContext). */
@@ -214,8 +261,5 @@ export async function listPublicChildren(parentId: string) {
 
 /** Public item file bytes — no auth (item must be in public chain). */
 export async function fetchPublicItemFileBlob(itemId: string) {
-  const { data } = await apiClient.get(`/public/items/${encodeURIComponent(itemId)}/file`, {
-    responseType: 'blob',
-  });
-  return data as Blob;
+  return fetchBlob(`/public/items/${encodeURIComponent(itemId)}/file`);
 }

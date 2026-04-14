@@ -18,6 +18,7 @@ import { ShareDialog } from "@/components/dashboard/ShareDialog";
 import { TextPromptDialog } from "@/components/dashboard/TextPromptDialog";
 import type { DashboardLocalState, ItemShareRecipient } from "@/components/dashboard/types";
 import { buildReorderPayload, sortedVisibleList } from "@/components/dashboard/utils";
+import { isLikelyImage, revokeBlobUrlAfterUse, triggerBrowserDownload } from "@/lib/blobDownload";
 
 function pickQueryString(v: string | string[] | undefined): string | undefined {
   if (typeof v === "string") return v;
@@ -90,6 +91,8 @@ class DashboardPageInner extends React.Component<Props, DashState> {
   private ignoreNextRouteChange = false;
   private lastHydratedSerialized = "";
   private hydrateSeq = 0;
+  /** Sync guard: blocks double folder opens before `files.loading` flips true (same event loop gap). */
+  private folderNavLock = false;
 
   constructor(props: Props) {
     super(props);
@@ -116,6 +119,7 @@ class DashboardPageInner extends React.Component<Props, DashState> {
       shareRecipientsLoading: false,
       removingShareId: null,
       linkError: null,
+      folderNavBusy: false,
       guestBrowse: { ready: false, items: [], loading: false, error: null },
     };
     this.fileInputRef = React.createRef();
@@ -430,6 +434,7 @@ class DashboardPageInner extends React.Component<Props, DashState> {
   }
 
   private logout = () => {
+    this.folderNavLock = false;
     this.props.store.logout();
     this.setState({
       crumbs: [{ id: null, name: "My files" }],
@@ -437,6 +442,7 @@ class DashboardPageInner extends React.Component<Props, DashState> {
       previewUrl: null,
       previewName: null,
       linkError: null,
+      folderNavBusy: false,
       guestBrowse: { ready: false, items: [], loading: false, error: null },
     });
     this.lastHydratedSerialized = "";
@@ -446,6 +452,7 @@ class DashboardPageInner extends React.Component<Props, DashState> {
   };
 
   private setViewMode = (mode: FilesViewMode) => {
+    this.folderNavLock = false;
     void this.props.store.setViewMode(mode);
     this.setState(
       {
@@ -454,6 +461,7 @@ class DashboardPageInner extends React.Component<Props, DashState> {
         previewUrl: null,
         previewName: null,
         linkError: null,
+        folderNavBusy: false,
       },
       () => this.syncRouterUrl("replace"),
     );
@@ -461,48 +469,85 @@ class DashboardPageInner extends React.Component<Props, DashState> {
 
   private navigateFolder = (item: Item) => {
     if (item.item_type !== "folder") return;
+    const { auth, files } = this.props;
+    const { guestBrowse, crumbs } = this.state;
+    if (this.folderNavLock) return;
+    if (auth.accessToken && files.loading) return;
+    if (!auth.accessToken && guestBrowse.loading) return;
+    const lastId = crumbs[crumbs.length - 1]?.id ?? null;
+    if (lastId === item.id) return;
     if (!this.props.auth.accessToken) {
       const nextCrumbs = [...this.state.crumbs, { id: item.id, name: item.name }];
       const q = buildDashboardQuery("mine", nextCrumbs);
       this.lastHydratedSerialized = "";
-      void this.props.router.push({ pathname: "/", query: q }, undefined, { shallow: true });
+      this.folderNavLock = true;
+      this.setState({ folderNavBusy: true });
+      void this.props.router
+        .push({ pathname: "/", query: q }, undefined, { shallow: true })
+        .finally(() => {
+          this.folderNavLock = false;
+          this.setState({ folderNavBusy: false });
+        });
       return;
     }
+    this.folderNavLock = true;
     this.setState(
       (s) => ({
         crumbs: [...s.crumbs, { id: item.id, name: item.name }],
+        folderNavBusy: true,
         previewItemIdForUrl: null,
         previewUrl: null,
         previewName: null,
         linkError: null,
       }),
       () => {
-        void this.props.store.loadFiles({ parentId: item.id });
+        void this.props.store.loadFiles({ parentId: item.id }).finally(() => {
+          this.folderNavLock = false;
+          this.setState({ folderNavBusy: false });
+        });
         this.syncRouterUrl("push");
       },
     );
   };
 
   private navigateCrumb = (index: number) => {
+    const { auth, files } = this.props;
+    const { guestBrowse, crumbs } = this.state;
+    if (this.folderNavLock) return;
+    if (auth.accessToken && files.loading) return;
+    if (!auth.accessToken && guestBrowse.loading) return;
+    if (index === crumbs.length - 1) return;
     if (!this.props.auth.accessToken) {
       const next = this.state.crumbs.slice(0, index + 1);
       const q = buildDashboardQuery("mine", next);
       this.lastHydratedSerialized = "";
-      void this.props.router.push({ pathname: "/", query: q }, undefined, { shallow: true });
+      this.folderNavLock = true;
+      this.setState({ folderNavBusy: true });
+      void this.props.router
+        .push({ pathname: "/", query: q }, undefined, { shallow: true })
+        .finally(() => {
+          this.folderNavLock = false;
+          this.setState({ folderNavBusy: false });
+        });
       return;
     }
     const next = this.state.crumbs.slice(0, index + 1);
     const target = next[next.length - 1];
+    this.folderNavLock = true;
     this.setState(
       {
         crumbs: next,
+        folderNavBusy: true,
         previewItemIdForUrl: null,
         previewUrl: null,
         previewName: null,
         linkError: null,
       },
       () => {
-        void this.props.store.loadFiles({ parentId: target.id });
+        void this.props.store.loadFiles({ parentId: target.id }).finally(() => {
+          this.folderNavLock = false;
+          this.setState({ folderNavBusy: false });
+        });
         this.syncRouterUrl("push");
       },
     );
@@ -604,16 +649,25 @@ class DashboardPageInner extends React.Component<Props, DashState> {
     if (!this.props.auth.accessToken) {
       try {
         const blob = await api.fetchPublicItemFileBlob(item.id);
-        const mime = (item.mime_type || "").toLowerCase();
-        if (mime.startsWith("image/")) {
+        const showInDialog = isLikelyImage(item, blob);
+        if (showInDialog) {
           const previewUrl = URL.createObjectURL(blob);
           this.setState({ previewUrl, previewName: item.name, previewItemIdForUrl: item.id }, () =>
             this.syncRouterUrl("push"),
           );
         } else if (typeof window !== "undefined") {
           const blobUrl = URL.createObjectURL(blob);
-          window.open(blobUrl, "_blank", "noopener,noreferrer");
-          window.setTimeout(() => URL.revokeObjectURL(blobUrl), 120_000);
+          const w = window.open(blobUrl, "_blank", "noopener,noreferrer");
+          if (!w) {
+            const a = document.createElement("a");
+            a.href = blobUrl;
+            a.target = "_blank";
+            a.rel = "noopener noreferrer";
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+          }
+          revokeBlobUrlAfterUse(blobUrl, 120_000);
           this.setState({ previewItemIdForUrl: item.id }, () => this.syncRouterUrl("push"));
         }
       } catch {
@@ -629,16 +683,25 @@ class DashboardPageInner extends React.Component<Props, DashState> {
         userId: this.props.auth.user?.id,
         userEmail: this.props.auth.user?.email,
       });
-      const mime = (item.mime_type || "").toLowerCase();
-      if (mime.startsWith("image/")) {
+      const showInDialog = isLikelyImage(item, blob);
+      if (showInDialog) {
         const previewUrl = URL.createObjectURL(blob);
         this.setState({ previewUrl, previewName: item.name, previewItemIdForUrl: item.id }, () =>
           this.syncRouterUrl("push"),
         );
       } else if (typeof window !== "undefined") {
         const blobUrl = URL.createObjectURL(blob);
-        window.open(blobUrl, "_blank", "noopener,noreferrer");
-        window.setTimeout(() => URL.revokeObjectURL(blobUrl), 120_000);
+        const w = window.open(blobUrl, "_blank", "noopener,noreferrer");
+        if (!w) {
+          const a = document.createElement("a");
+          a.href = blobUrl;
+          a.target = "_blank";
+          a.rel = "noopener noreferrer";
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+        }
+        revokeBlobUrlAfterUse(blobUrl, 120_000);
         this.setState({ previewItemIdForUrl: item.id }, () => this.syncRouterUrl("push"));
       }
     } catch {
@@ -655,17 +718,9 @@ class DashboardPageInner extends React.Component<Props, DashState> {
     if (!this.props.auth.accessToken) {
       try {
         const blob = await api.fetchPublicItemFileBlob(item.id);
-        const blobUrl = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = blobUrl;
-        a.download = item.name;
-        a.rel = "noopener noreferrer";
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(blobUrl);
-      } catch {
-        /* ignore */
+        triggerBrowserDownload(blob, item.name);
+      } catch (e: unknown) {
+        this.props.store.setFilesError(String((e as Error).message ?? "Download failed"));
       }
       return;
     }
@@ -675,18 +730,9 @@ class DashboardPageInner extends React.Component<Props, DashState> {
         userId: this.props.auth.user?.id,
         userEmail: this.props.auth.user?.email,
       });
-      // Blob URL + <a download> keeps filename; no Supabase signed URL in the client.
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = blobUrl;
-      a.download = item.name;
-      a.rel = "noopener noreferrer";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(blobUrl);
-    } catch {
-      /* ignore */
+      triggerBrowserDownload(blob, item.name);
+    } catch (e: unknown) {
+      this.props.store.setFilesError(String((e as Error).message ?? "Download failed"));
     }
   };
 
@@ -751,15 +797,13 @@ class DashboardPageInner extends React.Component<Props, DashState> {
   private copyShareItemLink = () => {
     const { shareFor } = this.state;
     if (!shareFor || typeof window === "undefined") return;
-    const q = buildDashboardQuery(this.props.files.viewMode, this.state.crumbs, shareFor.id);
-    const u = `${window.location.origin}${window.location.pathname}?${new URLSearchParams(q).toString()}`;
+    const u = `${window.location.origin}${window.location.pathname}?${new URLSearchParams({ item: shareFor.id }).toString()}`;
     void navigator.clipboard.writeText(u);
   };
 
   private copyItemUrl = (item: Item) => {
     if (typeof window === "undefined") return;
-    const q = buildDashboardQuery(this.props.files.viewMode, this.state.crumbs, item.id);
-    const u = `${window.location.origin}${window.location.pathname}?${new URLSearchParams(q).toString()}`;
+    const u = `${window.location.origin}${window.location.pathname}?${new URLSearchParams({ item: item.id }).toString()}`;
     void navigator.clipboard.writeText(u);
     this.setState({ copiedItemId: item.id });
     window.setTimeout(() => this.setState({ copiedItemId: null }), 2000);
@@ -831,6 +875,7 @@ class DashboardPageInner extends React.Component<Props, DashState> {
       copiedItemId,
       linkError,
       guestBrowse,
+      folderNavBusy,
     } = this.state;
 
     if (!auth.accessToken && !guestBrowse.ready) {
@@ -853,6 +898,7 @@ class DashboardPageInner extends React.Component<Props, DashState> {
       auth.accessToken && files.viewMode === "mine" && !files.searchQuery.trim() ? files.pendingUploads : [];
 
     const toolbarLoading = auth.accessToken ? files.loading : guestBrowse.loading;
+    const navigationLocked = toolbarLoading || folderNavBusy;
 
     return (
       <>
@@ -860,14 +906,14 @@ class DashboardPageInner extends React.Component<Props, DashState> {
           <title>File manager</title>
           <meta name="viewport" content="width=device-width, initial-scale=1" />
         </Head>
-        <div className="min-h-screen bg-background p-6">
+        <div className="min-h-screen bg-background p-3 sm:p-6">
           <DashboardHeader
             email={auth.user?.email}
             onLogout={this.logout}
             signInHref={auth.accessToken ? undefined : signInHref}
           />
 
-          <div className="rounded-xl border bg-card p-4 shadow-sm">
+          <div className="rounded-xl border bg-card p-3 shadow-sm sm:p-4">
             <DashboardToolbar
               viewMode={files.viewMode}
               onViewModeChange={this.setViewMode}
@@ -878,7 +924,7 @@ class DashboardPageInner extends React.Component<Props, DashState> {
               onSearchChange={this.onSearchChange}
               onNewFolder={this.openNewFolderModal}
               onRefresh={this.refreshList}
-              loading={toolbarLoading}
+              loading={navigationLocked}
               onUploadClick={this.triggerUpload}
               fileInputRef={this.fileInputRef}
               onFileChange={this.onFileChange}
@@ -902,6 +948,7 @@ class DashboardPageInner extends React.Component<Props, DashState> {
               list={list}
               pendingUploads={pendingUploads}
               currentUserId={auth.user?.id ?? null}
+              navigationLocked={navigationLocked}
               allowReorder={!sharedView}
               togglingPublicId={this.state.togglingPublicId}
               cloningId={this.state.cloningId}

@@ -2,6 +2,7 @@ import React from "react";
 import Head from "next/head";
 import { NextRouter, withRouter } from "next/router";
 import * as api from "@/lib/api";
+import { isLikelyImage, triggerBrowserDownload } from "@/lib/blobDownload";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -59,10 +60,7 @@ class SharePage extends React.Component<Props, State> {
     try {
       const data = await api.getPublicShare(token);
       let previewBlobUrl: string | null = null;
-      if (
-        data.item.item_type === "file" &&
-        (data.item.mime_type || "").toLowerCase().startsWith("image/")
-      ) {
+      if (data.item.item_type === "file" && isLikelyImage(data.item)) {
         const blob = await api.fetchPublicShareFileBlob(token);
         previewBlobUrl = URL.createObjectURL(blob);
       }
@@ -83,15 +81,7 @@ class SharePage extends React.Component<Props, State> {
     if (!token || this.state.data?.item.item_type !== "file") return;
     try {
       const blob = await api.fetchPublicShareFileBlob(token);
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = blobUrl;
-      a.download = name;
-      a.rel = "noopener noreferrer";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(blobUrl);
+      triggerBrowserDownload(blob, name);
     } catch {
       /* ignore */
     }
@@ -99,9 +89,7 @@ class SharePage extends React.Component<Props, State> {
 
   render() {
     const { loading, error, data, previewBlobUrl } = this.state;
-    const isImageFile =
-      data?.item.item_type === "file" &&
-      (data.item.mime_type || "").toLowerCase().startsWith("image/");
+    const isImageFile = data?.item.item_type === "file" && isLikelyImage(data.item);
     return (
       <>
         <Head>
@@ -152,7 +140,7 @@ class SharePage extends React.Component<Props, State> {
                       className="max-h-[60vh] w-full rounded-md border object-contain"
                     />
                   ) : null}
-                  {data.item.item_type === "file" && !isImageFile ? (
+                  {data.item.item_type === "file" ? (
                     <Button type="button" variant="secondary" className="w-full sm:w-auto" onClick={this.downloadFile}>
                       Download file
                     </Button>

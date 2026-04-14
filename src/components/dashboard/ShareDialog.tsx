@@ -68,22 +68,17 @@ export function ShareDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="gap-3 p-4 sm:gap-4 sm:p-6">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Share2 className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
             <span className="truncate">Share “{item?.name}”</span>
           </DialogTitle>
           <DialogDescription>
-            See who has access, remove people, or invite someone new by email. Use “Copy link to item” to copy a
-            dashboard URL to this file or folder.{" "}
-            <strong>Public</strong> files or empty folders: anyone can open them without an account (read-only table and
-            preview). <strong>Public folder:</strong> this folder and everything nested inside becomes public at all
-            levels; making it private does the reverse for the whole tree. <strong>Private</strong> items: only you and
-            invited emails who are signed in.
+            See who has access, remove people, or invite someone new by email.
           </DialogDescription>
           {item?.item_type === "folder" ? (
-            <p className="rounded-md border border-dashed bg-muted/50 px-3 py-2 text-sm text-foreground/90">
+            <p className="rounded-md border border-dashed bg-muted/50 px-2.5 py-1.5 text-sm text-foreground/90 sm:px-3 sm:py-2">
               Invited people can open this folder and everything inside it — all files and nested folders. The permission
               you choose applies to the whole tree under this folder.
             </p>
@@ -96,12 +91,12 @@ export function ShareDialog({
               People with access
             </Label>
             {shareRecipientsLoading ? (
-              <div className="flex items-center gap-2 rounded-md border border-dashed px-3 py-6 text-sm text-muted-foreground">
+              <div className="flex items-center gap-2 rounded-md border border-dashed px-2.5 py-4 text-sm text-muted-foreground sm:px-3 sm:py-6">
                 <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
                 Loading…
               </div>
             ) : shareRecipients.length === 0 ? (
-              <p className="rounded-md border border-dashed px-3 py-3 text-sm text-muted-foreground">
+              <p className="rounded-md border border-dashed px-2.5 py-2.5 text-sm text-muted-foreground sm:px-3 sm:py-3">
                 No collaborators yet. Add an email below to invite someone.
               </p>
             ) : (
@@ -109,7 +104,7 @@ export function ShareDialog({
                 {shareRecipients.map((r) => (
                   <li
                     key={r.id}
-                    className="flex items-center justify-between gap-2 border-b px-3 py-2.5 text-sm last:border-b-0"
+                    className="flex items-center justify-between gap-2 border-b px-2.5 py-2 text-sm last:border-b-0 sm:px-3 sm:py-2.5"
                   >
                     <span className="min-w-0 truncate font-medium" title={r.email}>
                       {r.email}
@@ -141,7 +136,7 @@ export function ShareDialog({
             )}
           </div>
         </div>
-        <form onSubmit={onSubmit} className="space-y-4">
+        <form onSubmit={onSubmit} className="space-y-3 sm:space-y-4">
           <div className="space-y-2">
             <Label htmlFor="share-email" className="inline-flex items-center gap-2">
               <Mail className="h-4 w-4 text-muted-foreground" aria-hidden />

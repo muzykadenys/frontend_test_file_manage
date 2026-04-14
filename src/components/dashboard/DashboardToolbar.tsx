@@ -78,6 +78,7 @@ export function DashboardToolbar({
                 type="button"
                 variant="link"
                 className="h-auto gap-1.5 p-0 text-foreground"
+                disabled={loading}
                 onClick={() => onNavigateCrumb(i)}
               >
                 {i === 0 ? <Home className="h-4 w-4 shrink-0" aria-hidden /> : null}

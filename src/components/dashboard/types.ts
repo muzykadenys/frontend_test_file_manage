@@ -35,4 +35,6 @@ export type DashboardLocalState = {
   copiedItemId: string | null;
   /** Deep link / hydrate failed (private item or no access). */
   linkError: string | null;
+  /** True while a folder navigation is in flight (covers gap before store `loading`). */
+  folderNavBusy: boolean;
 };
